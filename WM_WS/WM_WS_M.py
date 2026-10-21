@@ -114,9 +114,9 @@ def handle_engine(conn, addr):
 def start_servidor():
     global engine_conectado
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("0.0.0.0", PORT))
+    server.bind(("0.0.0.0", PUERTO))
     server.listen()
-    print(f"[LISTENING] Monitor a la escucha del Engine en el puerto {PORT}")
+    print(f"[LISTENING] Monitor a la escucha del Engine en el puerto {PUERTO}")
 
     while True:
         conn, addr = server.accept()
@@ -198,7 +198,7 @@ print("****** WELCOME TO WM_WS_M: MONITOR DE LA WATERING STATION ****")
 # - ID de la WS
 # - Ubicación de la estación (Opcional)?
 if len(sys.argv) in (5, 6):
-    PORT = int(sys.argv[1])
+    PUERTO = int(sys.argv[1])
     ADDR_CENTRAL = (sys.argv[2], int(sys.argv[3]))
     WS_ID = sys.argv[4]
     UBICACION = sys.argv[5] if len(sys.argv) == 6 else "UNKNOWN"
