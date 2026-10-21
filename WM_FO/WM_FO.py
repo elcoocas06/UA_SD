@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # WM_FO: Aplicación del operario de campo (Field Operator).
 # Uso: python WM_FO.py <KafkaIP> <KafkaPuerto> <ID_Operario>
 
@@ -151,3 +152,6 @@ if len(sys.argv) == 4:
     print("[FIN] Aplicación del operario cerrada")
 else:
     print("Argumentos necesarios: <KafkaIP> <KafkaPuerto> <ID_Operario>")
+=======
+# Falta implementar
+>>>>>>> 3212cf730e50f6e46d9bd2b8f5c22084b8a8a41d
