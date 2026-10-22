@@ -212,14 +212,14 @@ def hilo_riego():
     while True:
         time.sleep(1)
         data = None
-        with lock:
+        with lock: 
             if regando:
-                actualizar_contadores()
-                guardar_fichero("EN_CURSO")
+                actualizar_contadores() 
+                guardar_fichero("EN_CURSO")         # si el Engine muere ahora, no se pierde nada 
                 print(f"[CAUDALÍMETRO] {CAUDAL} L/min | {litros:.2f} L | {segundos} s | {operario}")
                 data = f"DATA{SEP}{WS_ID}{SEP}{operario}{SEP}{CAUDAL}{SEP}{litros:.2f}"
                 if segundos >= limite:
-                    cerrar_valvula("TIEMPO")
+                    cerrar_valvula("TIEMPO")    # guarda el resumne final en el fichero
         if data:
             enviar_evento(data)
         entregar_end_pendiente()
@@ -227,11 +227,12 @@ def hilo_riego():
 ############ ORDENES DE CENTRAL (KAFKA) ############
 
 def procesar_orden(texto):
+    # Interpreta una orden recibida de central, ej. "START#WS-01#FO-12#60"
     global bloqueada
     p = texto.split(SEP)
     if len(p) < 2 or p[1] not in (WS_ID, "ALL"):
         return  # la orden es para otra estacion
-    print(f"[CENTRAL] Orden recibida: {texto}")
+    print(f"[CENTRAL] Orden recibida: {texto}")     # la orden es para esta WS
     try:
         if p[0] == "START": # START#ID#operario#segundos
             iniciar_riego(p[2], int(p[3]))
@@ -252,6 +253,7 @@ def procesar_orden(texto):
         print(f"[ERROR] Orden mal formada: {texto}")
 
 def hilo_ordenes():
+    # Escucha las ordenes de Central en Kafka.
     # Sin group_id, cada Engine es un consumidor independiente y recibe todas las ordenes, despues filtra las suyas (su ID o ALL).
     #auto_offset_reset="latest": solo se leen ordenes nuevas, asi una WS qeu arranca no ejecuta ordenes antiguas enviadas mientras estaba apagada.
     id_listo.wait()
@@ -271,7 +273,7 @@ def hilo_monitor():
     # El Engine es CLIENTE y el Monitor es SERVIDOR. Cada segundo llega un HEALTH y se responde OK o KO(si hay fuga simulada).
     # Si el monitor cae (conexion cerrada o 5 s sin HEALTH), la estacion queda AVERIADA: se corta el riego en curso y no se admiten riegos nuevos hasta que el monitor vuelva.
     global WS_ID, monitor_ok, central_conectada
-    avisado = False     # para no reoetir "Esperando al Monitor"
+    avisado = False     # para no repetir "Esperando al Monitor"
     while True:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(TIMEOUT_MONITOR)  # evita quedarse bloqueado en recv()
@@ -285,7 +287,7 @@ def hilo_monitor():
                     continue
                 if WS_ID is None:   # primer HEALTH: se conoce el ID
                     WS_ID = msg[1]
-                    os.makedirs(DIR_DATOS, exist_ok=True)
+                    os.makedirs(DIR_DATOS, exist_ok=True) # Crea la carpeta de datos si no existe
                     print(f"[MONITOR] Identificador de la estacion: {WS_ID}")
                     id_listo.set()
                 if len(msg) > 2:    # el Monitor informa del estado de central
@@ -316,6 +318,7 @@ def hilo_monitor():
 ############# MENÚ DE LA ESTACION #############
 
 def mostrar_estado():
+    # Opcion 4: muestra el estado de la estacion. Se comprueba en orden de prioridad
     with lock:
         if WS_ID is None:
             estado = "SIN AUTENTICAR (esperando al Monitor)"
