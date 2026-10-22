@@ -371,25 +371,24 @@ def menu():
 
 ##################### MAIN #####################
 
-if __name__ == "__main__":
-    print("**** WM_WS_E: ENGINE DE LA WATERING STATION ****")
-    if len(sys.argv) != 5:
-        print("Argumentos necesarios: <KafkaIP> <KafkaPuerto> <MonitorIP> <MonitorPuerto>")
-        sys.exit(1)
-    KAFKA_ADDR = f"{sys.argv[1]}:{sys.argv[2]}"
-    try:
-        MONITOR_ADDR = (sys.argv[3], int(sys.argv[4]))
-    except ValueError:
-        print("[ERROR] El puerto del Monitor debe ser un número")
-        sys.exit(1)
+print("**** WM_WS_E: ENGINE DE LA WATERING STATION ****")
+if len(sys.argv) != 5:
+    print("Argumentos necesarios: <KafkaIP> <KafkaPuerto> <MonitorIP> <MonitorPuerto>")
+    sys.exit(1)
+KAFKA_ADDR = f"{sys.argv[1]}:{sys.argv[2]}"
+try:
+    MONITOR_ADDR = (sys.argv[3], int(sys.argv[4]))
+except ValueError:
+    print("[ERROR] El puerto del Monitor debe ser un número")
+    sys.exit(1)
 
-    # Hilos en segundo plano que terminan solos cuando acaba el programa
-    threading.Thread(target=hilo_monitor, daemon=True).start()
-    threading.Thread(target=hilo_ordenes, daemon=True).start()
-    threading.Thread(target=hilo_riego, daemon=True).start()
+# Hilos en segundo plano que terminan solos cuando acaba el programa
+threading.Thread(target=hilo_monitor, daemon=True).start()
+threading.Thread(target=hilo_ordenes, daemon=True).start()
+threading.Thread(target=hilo_riego, daemon=True).start()
 
-    try:
-        menu()
-    except KeyboardInterrupt:
-        print("\n[FIN] Engine detenido")
+try:
+    menu()
+except KeyboardInterrupt:
+    print("\n[FIN] Engine detenido")
     
