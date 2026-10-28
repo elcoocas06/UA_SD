@@ -168,7 +168,7 @@ def iniciar_riego(op, tiempo):
     # El envio a Kafka se hace fuera del cerrojo, para no bloquear el hilo de riego mientras espera la confirmación del broker 
     if motivo:
         print(f"[RIEGO] Riego rechazado para {op} (motivo: {motivo})")
-    enviar_evento(f"REJECT{SEP}{WS_ID}{SEP}{op}{SEP}{motivo}")
+        enviar_evento(f"REJECT{SEP}{WS_ID}{SEP}{op}{SEP}{motivo}")
 
 def cerrar_valvula(motivo):
     # Cierra el riego y guarda el resumen final en el fichero. No envia el evento END a CENTRAL, eso lo hace el hilo de riego)
@@ -193,8 +193,11 @@ def entregar_end_pendiente():
             return # no hay resumen pendiente
         try:
             op, l, s, motivo = open(fichero()).read().strip().split(SEP) 
+            float(l)
+            int(s)
         except ValueError:
-            os.replace(fichero(), fichero() + ".error") # renombra el fichero para que no se pierda y no se intente enviar otra vez
+            fich = f"{fichero()}.{int(time.time())}.error"
+            os.replace(fichero(), fich) # renombra el fichero para que no se pierda y no se intente enviar otra vez
             print(f"[ERROR] Formato incorrecto del fichero de riego: {fichero()}")
             return
     if motivo == "EN_CURSO": # el Engine se detuvo en mitad del riego
@@ -242,6 +245,8 @@ def procesar_orden(texto):
                 bloqueada = True
                 cerrar_valvula("BLOQUEADA")
             print("[ESTADO] FUERA DE SERVICIO por orden de WM_Central")
+        elif p[0] == "DENIED":
+            print(f"[CENTRAL] Petición de riefo manual DENEGADA: {p[2]}")
         elif p[0] == "ACTIVATE":
             with lock:
                 bloqueada = False
@@ -271,7 +276,7 @@ def hilo_monitor():
     # El Engine es CLIENTE y el Monitor es SERVIDOR. Cada segundo llega un HEALTH y se responde OK o KO(si hay fuga simulada).
     # Si el monitor cae (conexion cerrada o 5 s sin HEALTH), la estacion queda AVERIADA: se corta el riego en curso y no se admiten riegos nuevos hasta que el monitor vuelva.
     global WS_ID, monitor_ok, central_conectada
-    avisado = False     # para no reoetir "Esperando al Monitor"
+    avisado = False     # para no repetir "Esperando al Monitor"
     while True:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(TIMEOUT_MONITOR)  # evita quedarse bloqueado en recv()
