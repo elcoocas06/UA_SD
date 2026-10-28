@@ -98,15 +98,16 @@ def mostrar_estaciones(lista):
         if len(campos) != 3:
             continue    #entrada mal formada, se ignora
         ws, ubicacion, estado = campos
-        marca = " <- disponible" if estado == "AVAILABLE" else ""
-        disponibles += (estado == "AVAILABLE")
+        marca = " <- disponible" if estado == "DISPONIBLE" else ""
+        disponibles += (estado == "DISPONIBLE")
         print(f"{ws:<8}{ubicacion:<24}{estado}{marca}")
     print(f"Estaciones disponibles: {disponibles}")
 
 def terminar_servicio():
     # Marca el servicio en curso como terminado
-    global fase
+    global fase, ws_actual
     fase = None
+    ws_actual = None
     servicio_terminado.set()    # despierta al hilo principal
 
 def procesar_notificacion(texto):
@@ -261,7 +262,7 @@ def menu():
                 print("Datos no válidos")
             else:
                 solicitar_servicio(ws, int(t))
-        if op == "2":
+        elif op == "2":
             ejecutar_fichero(input("Ruta del fichero: ").strip())
         elif op == "3":
             ver_estaciones()
