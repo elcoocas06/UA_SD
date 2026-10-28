@@ -10,6 +10,7 @@ SEP = "#"
 PERIODO = 1             # Tiempo de comprobacion de estado de salud de WS
 TIMEOUT_ENGINE = 2
 TIMEOUT_CENTRAL = 5 
+ESPERA_ENGINE = 8       # 8 s tras autenticarse sin que el Engine conecte -> se dea por caído (KO)
 
 # Posibles estados del Engine (los guardamos como texto)
 WAIT = "WAIT"
@@ -25,6 +26,7 @@ lock_engine = threading.Lock()
 
 # CENTRAL ya ha validado el ID de esta WS
 autenticado = threading.Event()
+central_ok = False          # True mientras hay conexion con CENTRAL
 
 
 ########## FUNCIONES DE MENSAJERIA ##########
@@ -67,7 +69,9 @@ def cambiar_estado(nuevo):
 
     # Casos posibles al cambio de estado
     if anterior != nuevo:
-        if nuevo == KO:
+        if nuevo == KO and anterior == WAIT:
+            print(f"[!!! AVERIA !!!] El Engine de {WS_ID} no se ha conectado (WAIT -> KO). Se notifica a CENTRAL")
+        elif nuevo == KO:
             print(f"[!!! AVERIA !!!] Fuga detectada en {WS_ID} ({anterior} -> KO). Se notifica a CENTRAL")
         elif nuevo == OK and anterior == KO:
             print(f"[AVERIA RESUELTA] {WS_ID} vuelve a estar operativa (KO -> OK). Se notifica a CENTRAL")
@@ -88,7 +92,7 @@ def handle_engine(conn, addr):
         connected = True
         while connected:
             # Enviamos el ID de la estacion a Engine y comprobamos su estado
-            send(conn, f"HEALTH{SEP}{WS_ID}")
+            send(conn, f"HEALTH{SEP}{WS_ID}{SEP}{'OK' if central_ok else 'KO'}")
             respuesta = recibir(conn).split(SEP)
 
             # Si es OK -> Todo bien / Si es KO -> averia
@@ -113,7 +117,12 @@ def handle_engine(conn, addr):
 # Gestionamos la conexion de un unico Engine 
 def start_servidor():
     global engine_conectado
+    # No se abre el puerto del Engine hasta que CENTRAL valida la WS. Así el Engine solo 
+    # ve "Esperando al Monitor" y no se conecta a un Monitor que todavía 
+    # no le puede atender 
+    autenticado.wait()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1) # reutilizar el puerto al reiniciar
     server.bind(("0.0.0.0", PUERTO))
     server.listen()
     print(f"[LISTENING] Monitor a la escucha del Engine en el puerto {PUERTO}")
@@ -137,6 +146,7 @@ def start_servidor():
 ########## LADO CLIENTE: CENTRAL ##########
 
 def central_conectada():
+    global central_ok
     espera = 1
     while True:   
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -150,28 +160,41 @@ def central_conectada():
             send(client, f"REGISTER{SEP}{WS_ID}{SEP}{UBICACION}")
             respuesta = recibir(client).split(SEP)
             if respuesta[0] != "OK":
-                print(f"CENTRAL rechaza el registro de {WS_ID}: {respuesta[1:]}")
+                motivo = respuesta[1] if len(respuesta) > 1 else ""
+                texto = respuesta[2] if len(respuesta) > 2 else motivo
                 client.close()
+                if motivo == "DUPLICADA":
+                    # Puede ser nuestra conexión anterior, que CENTRAL aún no ha dado por cerrada
+                    print(f"[REGISTRO] CENTRAL rechaza {WS_ID} por ahora ({texto}). Reintento en {espera}s")
+                    time.sleep(espera)
+                    espera = min(espera * 2, 10)
+                    continue
+                print(f"[REGISTRO DENEGADO] CENTRAL rechaza el registro de {WS_ID}: {texto}")
                 return False
             print(f"WS {WS_ID} autenticada y registrada en CENTRAL")
 
             # Cuando la central valida que el WS está operativo, 
             # podemos empezar a monitorizar el Engine
             autenticado.set()
+            central_ok = True
             espera = 1
+            inicio_espera = time.time()     # desde cuando se espera al Engine
 
             # 2) Enviar el estado de la WS cada segundo (a central) 
             while True:
                 estado = obtener_estado()
-                print("Envio a CENTRAL: ", f"STATUS{SEP}{WS_ID}{SEP}{estado}")
+                if estado == WAIT and time.time() - inicio_espera > ESPERA_ENGINE:
+                    cambiar_estado(KO) # Monitor OK + Engine caído -> averiada
+                    estado = KO
+                
                 send(client, f"STATUS{SEP}{WS_ID}{SEP}{estado}")
-                print("Recibo de CENTRAL: ", recibir(client))
+                recibir(client)     # respuesta de CENTRAL (si no llega en 5s -> timeout)
                 time.sleep(PERIODO)
 
         # Ctrl+C en el teclado: nos despedimos de CENTRAL
         # Sirve para apagar el monitor de forma manual
         except KeyboardInterrupt:
-            print("SE ACABO LO QUE SE DABA")
+            print("CENTRAL caída")
             try:
                 print("Envio a CENTRAL: ", FIN)
                 send(client, FIN)
@@ -182,6 +205,7 @@ def central_conectada():
 
         # Cualquier fallo de red: cerramos, esperamos y volvemos a intentarlo
         except (socket.timeout, ConnectionError, OSError, ValueError) as e:
+            central_ok = False
             print(f"Conexión con CENTRAL perdida ({e}). Reintento en {espera}s")
             client.close()
             time.sleep(espera)
@@ -208,8 +232,11 @@ if len(sys.argv) in (5, 6):
     thread.start()
 
     # Si CENTRAL RECHAZA LA CONEXION acaba el programa
-    if not central_conectada():
-        sys.exit(2)
+    try:
+        if not central_conectada():
+            sys.exit(2)
+    except KeyboardInterrupt:
+        print("\n[FIN] Monitor detenido")
 
 # Parametros mal introducidos
 else:
