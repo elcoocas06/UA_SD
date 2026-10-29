@@ -48,15 +48,17 @@ TOPIC_EVENTS = "wm_ws_events"   # WS -> CENTRAL (REQUEST, DATA, END, REJECT)
 
 WS_ID = None                     # lo comunica el Monitor tras autenticarse en CENTRAL
 id_listo = threading.Event()     # se activa cuando ya se conoce el ID
+respuesta_central = threading.Event()   # se activa al llegar la respuesta a una peticion manual
 
 # Cerrojo que protege el acceso al estado del riego. Varios hilos pueden intentar abrir/cerrar la electroválvula a la vez (menú, orden de central, limite de tiempo, caida del monitor). Con el cerrojo se asegura que solo uno de ellos lo haga a la vez.
 lock = threading.Lock() 
 
-averia = False                  #True si se simula una fuga (responde KO)
-bloqueada = False               #True si CENTRAL la ha puesto fuera de servicio
-monitor_ok = False              #True si el monitor responde a las comprobaciones de salud
-central_conectada = None        #True si hay conexión con la central
-regando = False                 #True si la electroválvula está abierta
+averia = False                  # True si se simula una fuga (responde KO)
+bloqueada = False               # True si CENTRAL la ha puesto fuera de servicio
+monitor_ok = False              # True si el monitor responde a las comprobaciones de salud
+central_conectada = None        # True si hay conexión con la central
+regando = False                 # True si la electroválvula está abierta
+esperando_resumen = False       # True mientras el menú espera el resumen de un riego que ha cerrado él
 operario = ""                   # nombre del operario que ha iniciado el riego
 limite = 0                      # duración máxima del riego (s)
 inicio = 0                      # instante de tiempo en que se abrió la electroválvula
@@ -207,6 +209,8 @@ def entregar_end_pendiente():
         with lock:
             os.remove(fichero())
         print(f"[CENTRAL] Resumen final entregado: {l} L en {s} s ({motivo})")
+        if not esperando_resumen:
+            mostrar_menu()
 
 def hilo_riego():
     # Cada segundo:
@@ -238,6 +242,7 @@ def procesar_orden(texto):
     try:
         if p[0] == "START": # START#ID#operario#segundos
             iniciar_riego(p[2], int(p[3]))
+            respuesta_central.set()
         elif p[0] == "STOP":
             finalizar_riego("STOP")
         elif p[0] == "BLOCK":   # corta el riego y queda fuera de servicio
@@ -247,6 +252,7 @@ def procesar_orden(texto):
             print("[ESTADO] FUERA DE SERVICIO por orden de WM_Central")
         elif p[0] == "DENIED":
             print(f"[CENTRAL] Petición de riefo manual DENEGADA: {p[2]}")
+            respuesta_central.set()
         elif p[0] == "ACTIVATE":
             with lock:
                 bloqueada = False
@@ -339,11 +345,30 @@ def mostrar_estado():
     if pendiente:
         print("[ESTADO] Hay un resumen de riego pendiente de entregar a WM_Central")
 
+TEXTO_MENU = "\n1) Solicitar riego  2) Finalizar riego  3) Simular/resolver fuga  4) Ver estado"
+
+def mostrar_menu():
+    print(TEXTO_MENU)
+    print("> ", end="", flush=True)
+
+def esperar_resumen(maximo=5):
+    # Espera a que hilo_riego entregue el END a CENTRAL
+    # para que el resumen salga en pantalla antes que el menú.
+    # Como máximo 'máximo' segundos: si kafka no responde, el menú no se queda bloqueado
+    limite = time.time() + maximo
+    while os.path.exists(fichero()) and time.time() < limite:
+        time.sleep(0.1)
+
 def menu():
-    global averia
+    global averia, esperando_resumen
+    ver_menu = True
     while True:
-        print("\n1) Solicitar riego  2) Finalizar riego  3) Simular/resolver fuga  4) Ver estado")
-        op = input("> ").strip()
+        if ver_menu:
+            print(TEXTO_MENU)
+            op = input("> ").strip()
+        else:
+            op = input("> ").strip()            
+        ver_menu=True
         if op == "4":
             mostrar_estado()
         elif WS_ID is None:
@@ -358,19 +383,32 @@ def menu():
                 t = input("Duracion (s): ").strip()
                 if not t.isdigit() or int(t) == 0:
                     print("Duracion no valida")
-                elif enviar_evento(f"REQUEST{SEP}{WS_ID}{SEP}MANUAL{SEP}{t}"):
-                    print("Peticion enviada a WM_Central. Esperando autorización")
+                else:
+                    respuesta_central.clear()    
+                    if enviar_evento(f"REQUEST{SEP}{WS_ID}{SEP}MANUAL{SEP}{t}"):
+                        print("Peticion enviada a WM_Central. Esperando autorización")
+                        if respuesta_central.wait(10):
+                            ver_menu = not regando  # si el riego ha empezado, no se muestra el menu hasta que termine
+                        else:
+                            print("[ERROR] Imposible conectar con WM_Central: sin respuesta a la peticion")
         elif op == "2":
-            if not finalizar_riego("MANUAL"):
+            esperando_resumen = True    # se activa antes de cerrar, para que no se adelante hilo_riego
+            if finalizar_riego("MANUAL"):
+                esperar_resumen()
+            else:
                 print("No hay ningún riego en curso")
+            esperando_resumen = False
         elif op == "3":
             # Alterna la fuga. Con fuga se responde KO al Monitor(que avisa a Central) y el riego en curso corta inmediatamente.
+            esperando_resumen = True
             with lock:
                 averia = not averia
-                if averia:
-                    cerrar_valvula("FUGA")
+                cerrado = averia and cerrar_valvula("FUGA")
             print("[AVERIA] Fuga simulada. Se responderá KO al Monitor" if averia
                   else "[AVERIA RESUELTA] Se responderá OK al Monitor")
+            if cerrado:
+                esperar_resumen()
+            esperando_resumen = False
         else:
             print("Opción no válida")
 
