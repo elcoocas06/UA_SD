@@ -1,1 +1,2 @@
-kafka-python==2.2.15
+# Cliente de Kafka para Python (2.0.3 o posterior: las anteriores no funcionan con Python 3.12)
+kafka-python>=2.0.3,<3

@@ -1,0 +1,27 @@
+# Parte "cloud" en tu portátil (Kafka + WM_Central), para probar antes de Railway:
+#   docker compose up --build
+# Los Monitores, Engines y FO se lanzan aparte con "docker run --network host"
+services:
+  kafka:
+    build: ./kafka
+    ports:
+      - "9092:9092"             # EXTERNAL: para Engines y FO lanzados en el portátil
+
+  central:
+    build: ./WM_Central
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_HOST: kafka         # nombre del servicio en la red de docker-compose
+      KAFKA_PORT: "29092"       # listener INTERNAL
+      PUERTO_SOCKETS: "7000"
+    ports:
+      - "7000:7000"             # sockets de los Monitores
+      - "8080:8080"             # panel web: http://localhost:8080
+    volumes:
+      - central_datos:/data     # la base de datos sobrevive a los reinicios
+    stdin_open: true
+    tty: true
+
+volumes:
+  central_datos:

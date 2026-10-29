@@ -1,0 +1,5 @@
+# Ficheros que NO se copian a la imagen
+wm_central.db*
+__pycache__/
+venv/
+*.log

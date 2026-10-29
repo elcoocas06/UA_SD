@@ -1,0 +1,5 @@
+# Ficheros que NO se copian a la imagen (los riegos guardados son de cada máquina)
+datos/
+riego_*
+__pycache__/
+venv/
