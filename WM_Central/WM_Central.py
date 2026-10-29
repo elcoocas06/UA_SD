@@ -351,7 +351,7 @@ def tratar_data(p, reciente=True):
     if es_el_primero:                                               # AUTH#FO_ID#WS_ID
         avisar(operador, f"AUTH{SEP}{operador}{SEP}{ws_id}", f"{ws_id} ha AUTORIZADO el riego. Electroválvula abierta")
     # Progreso del riego en la terminal de CENTRAL cada segundo
-    print(f"{time.strftime('%H:%M:%S')} [RIEGO] {ws_id} | {caudal} L/min"
+    print(f"{time.strftime('%H:%M:%S')} [RIEGO] {ws_id} | {caudal} L/min "
           f"{litros:.2f} L acumulados | operario {operador}", flush=True)
     # El operario solo recibe los mensajes de la WS que le está prestando servicio
     avisar(operador, f"STATUS{SEP}{operador}{SEP}{ws_id}{SEP}{caudal}{SEP}{litros:.2f}")   # CAMBIO
