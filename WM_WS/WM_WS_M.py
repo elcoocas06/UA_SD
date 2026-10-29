@@ -70,13 +70,13 @@ def cambiar_estado(nuevo):
     # Casos posibles al cambio de estado
     if anterior != nuevo:
         if nuevo == KO and anterior == WAIT:
-            print(f"[!!! AVERIA !!!] El Engine de {WS_ID} no se ha conectado (WAIT -> KO). Se notifica a CENTRAL")
+            print(f"\n[!!! AVERIA !!!] El Engine de {WS_ID} no se ha conectado (WAIT -> KO). Se notifica a CENTRAL")
         elif nuevo == KO:
-            print(f"[!!! AVERIA !!!] Fuga detectada en {WS_ID} ({anterior} -> KO). Se notifica a CENTRAL")
+            print(f"\n[!!! AVERIA !!!] Fuga detectada en {WS_ID} ({anterior} -> KO). Se notifica a CENTRAL")
         elif nuevo == OK and anterior == KO:
-            print(f"[AVERIA RESUELTA] {WS_ID} vuelve a estar operativa (KO -> OK). Se notifica a CENTRAL")
+            print(f"\n[AVERIA RESUELTA] {WS_ID} vuelve a estar operativa (KO -> OK). Se notifica a CENTRAL")
         else:
-            print(f"[ESTADO] Engine de {WS_ID}: {anterior} -> {nuevo}")
+            print(f"\n[ESTADO] Engine de {WS_ID}: {anterior} -> {nuevo}")
 
 ########## LADO SERVIDOR: ENGINE ##########
 
@@ -189,6 +189,8 @@ def central_conectada():
                 
                 send(client, f"STATUS{SEP}{WS_ID}{SEP}{estado}")
                 recibir(client)     # respuesta de CENTRAL (si no llega en 5s -> timeout)
+                print(f"\r[SALUD {time.strftime('%H:%M:%S')}] Engine {WS_ID}: {estado}"
+                      f"-> enviado a Central ", end="", flush=True)
                 time.sleep(PERIODO)
 
         # Ctrl+C en el teclado: nos despedimos de CENTRAL
