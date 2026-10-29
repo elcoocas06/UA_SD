@@ -1,0 +1,30 @@
+
+services:
+  monitor:
+    image: elcoocas06/ua_sd:ws
+    command:
+      - WM_WS_M.py
+      - "7001"
+      - "${CENTRAL_HOST}"
+      - "${CENTRAL_PORT}"
+      - "${WS_ID}"
+      - "${WS_LOCATION}"
+    ports:
+      - "${WS_HOST_PORT}:7001"
+    restart: unless-stopped
+
+  engine:
+    image: elcoocas06/ua_sd:ws
+    profiles:
+      - engine
+    command:
+      - WM_WS_E.py
+      - "${KAFKA_HOST}"
+      - "${KAFKA_PORT}"
+      - monitor
+      - "7001"
+    depends_on:
+      - monitor
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
