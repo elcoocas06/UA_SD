@@ -727,9 +727,11 @@ print("****** WELCOME TO WM_CENTRAL: SISTEMA CENTRAL DE WATERMANAGEMENT ****")
 if len(sys.argv) in (4, 5):
     PUERTO = int(sys.argv[1])
     KAFKA_ADDR = f"{sys.argv[2]}:{sys.argv[3]}"
-    # Puerto web: 4º argumento, o la variable PORT (la que asigna Railway), o 8080
-    # CAMBIO (#21): el 4.º argumento tiene prioridad; si no se indica, PORT (Railway) o 8080
-    PUERTO_WEB = int(sys.argv[4]) if len(sys.argv) == 5 else int(os.environ.get("PORT", 8080))
+    # Puerto web: argumento opcional o variable de entorno
+    if len(sys.argv) == 5:
+        PUERTO_WEB = int(sys.argv[4])
+    else:
+        PUERTO_WEB = int(os.environ.get("PUERTO_WEB", "8080"))
  
     # Inicialización de la base de datos
     iniciar_db()
@@ -753,6 +755,7 @@ if len(sys.argv) in (4, 5):
     log(f"[WEB] Panel de monitorización en http://0.0.0.0:{PUERTO_WEB}")
     try:
         ThreadingHTTPServer(("0.0.0.0", PUERTO_WEB), PanelHandler).serve_forever()   # el hilo principal sirve el panel
+
     except KeyboardInterrupt:
         print("CENTRAL detenida")
     
