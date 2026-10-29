@@ -23,13 +23,13 @@ SEP = "#"
 TIMEOUT_MONITOR = 5             # si un Monitor no envía nada en 5 s => lo damos por desconectado
 TIMEOUT_AUTORIZACION = 5        # segundos que esperamos a que la WS empiece a regar tras un START
 TIMEOUT_SIN_DATOS = 10          # segundos sin DATA de una WS que riega => damos el riego por interrumpido
-ANTIGUEDAD_MAXIMA = 10          # CAMBIO: s. Una petición más antigua (enviada con CENTRAL caída) no se atiende
+ANTIGUEDAD_MAXIMA = 10          # Una petición más antigua (enviada con CENTRAL caída) no se atiende
  
 # Topics de Kafka
 TOPIC_ORDERS = "wm_ws_orders"       # CENTRAL -> Engines (texto)
 TOPIC_EVENTS = "wm_ws_events"       # Engines -> CENTRAL (texto)
-TOPIC_REQUESTS = "wm_fo_requests"       # FO -> CENTRAL (texto)   # CAMBIO: mismo topic que WM_FO
-TOPIC_OPERATORS = "wm_fo_notifications" # CENTRAL -> FO (texto)   # CAMBIO: mismo topic que WM_FO
+TOPIC_REQUESTS = "wm_fo_requests"       # FO -> CENTRAL (texto)   
+TOPIC_OPERATORS = "wm_fo_notifications" # CENTRAL -> FO (texto)   
 TOPICS = [TOPIC_ORDERS, TOPIC_EVENTS, TOPIC_REQUESTS, TOPIC_OPERATORS]
  
 # Estados que se muestran en el panel
@@ -43,7 +43,7 @@ DURACION_POR_DEFECTO = 20
 DB_FILE = os.environ.get("WM_DB", "wm_central.db")     # en Railway: ruta dentro de un volumen
 OPERARIOS_INICIALES = [("FO-01", "Operario 1"), ("FO-02", "Operario 2"), ("FO-03", "Operario 3"),
                        ("FO-04", "Operario 4"), ("FO-05", "Operario 5")]
-# CAMBIO (#3): estaciones dadas de alta por CENTRAL. Solo estas pueden registrarse; el resto se deniega.
+
 # Se pueden dar de alta más desde el panel web ("Dar de alta una estación").
 ESTACIONES_INICIALES = [("WS-01", "River Park"), ("WS-02", "Central Park"),
                         ("WS-03", "Riverside Gardens"), ("WS-04", "North Roundabout")]
@@ -75,8 +75,8 @@ lock_est = threading.Lock()     # Protege el acceso al estado de las estaciones
 lock_db = threading.Lock()      # Protege el acceso a SQLite
 mensajes = deque(maxlen=60)     # últimos mensajes (se muestran en el panel)
 producer = None
-listo_peticiones = threading.Event()    # CAMBIO: un consumidor para peticiones de los FO...
-listo_eventos = threading.Event()       # CAMBIO: ...y otro para los eventos de los Engines
+listo_peticiones = threading.Event()    # un consumidor para peticiones de los FO...
+listo_eventos = threading.Event()       # un consumidor para los eventos de los Engines
  
  
 ########## LOG ##########
@@ -139,7 +139,7 @@ def iniciar_db():
                 "fecha TEXT, duracion REAL, volumen REAL, motivo TEXT)")
     for id_op, nombre in OPERARIOS_INICIALES:
         db_ejecutar("INSERT OR IGNORE INTO operarios VALUES (?, ?)", (id_op, nombre))
-    for ws_id, ubicacion in ESTACIONES_INICIALES:                  # CAMBIO (#3)
+    for ws_id, ubicacion in ESTACIONES_INICIALES:                  
         db_ejecutar("INSERT OR IGNORE INTO estaciones VALUES (?, ?, 'ACTIVA')", (ws_id, ubicacion))
  
  
@@ -168,7 +168,7 @@ def cargar_estaciones():
     # hasta que su Monitor conecte (no conocemos su estado real).
     for ws_id, ubicacion, estado in db_ejecutar("SELECT id, ubicacion, estado FROM estaciones", leer=True):
         estaciones[ws_id] = nueva_estacion(ws_id, ubicacion)
-        estaciones[ws_id]["bloqueada"] = (estado == "BLOQUEADA")    # CAMBIO: el bloqueo sobrevive a un reinicio
+        estaciones[ws_id]["bloqueada"] = (estado == "BLOQUEADA")    # el bloqueo sobrevive a un reinicio
         log(f"[BD] Estación {ws_id} ({ubicacion}) cargada: DESCONECTADA hasta que conecte"
             f"{' (bloqueada)' if estado == 'BLOQUEADA' else ''}")
  
@@ -213,7 +213,7 @@ def crear_topics():
  
  
 def publicar(topic, texto):
-    # CAMBIO: envío con errores controlados. Si Kafka falla, se registra y CENTRAL sigue funcionando.
+    # envío con errores controlados. Si Kafka falla, se registra y CENTRAL sigue funcionando.
     try:
         producer.send(topic, texto.encode(FORMAT))
         producer.flush(timeout=5)
@@ -227,7 +227,7 @@ def enviar_orden(texto):
  
  
 def avisar(operador, mensaje, texto_log=None):
-    # CAMBIO: mensaje de TEXTO para un operario, con el formato que entiende WM_FO:
+    # mensaje de TEXTO para un operario, con el formato que entiende WM_FO:
     #   TIPO#FO_ID#WS_ID#campos...  (INFO, AUTH, DENIED, STATUS, END, STATIONS)
     # Si se indica texto_log, se muestra también en la pantalla de CENTRAL.
     if texto_log:
@@ -236,12 +236,12 @@ def avisar(operador, mensaje, texto_log=None):
  
  
 def info(operador, ws_id, texto):
-    # CAMBIO: paso intermedio de una petición -> INFO#FO_ID#WS_ID#texto
+    # paso intermedio de una petición -> INFO#FO_ID#WS_ID#texto
     avisar(operador, f"INFO{SEP}{operador}{SEP}{ws_id}{SEP}{texto}", f"{ws_id}: {texto}")
  
  
 def enviar_lista(operador):
-    # CAMBIO: respuesta a LIST -> STATIONS#FO_ID#WS-01;ubicacion;ESTADO|WS-02;...
+    # respuesta a LIST -> STATIONS#FO_ID#WS-01;ubicacion;ESTADO|WS-02;...
     with lock_est:
         filas = [(ws["id"], ws["ubicacion"], estado_visible(ws))
                  for ws in sorted(estaciones.values(), key=lambda w: w["id"])]
@@ -253,17 +253,17 @@ def enviar_lista(operador):
 ########## LOGICA: PETICIONES DE RIEGO ##########
  
 def denegar(operador, ws_id, motivo):
-    # CAMBIO: DENIED#FO_ID#WS_ID#motivo
+    # DENIED#FO_ID#WS_ID#motivo
     avisar(operador, f"DENIED{SEP}{operador}{SEP}{ws_id}{SEP}{motivo}", f"Riego DENEGADO en {ws_id}: {motivo}")
     if operador == "MANUAL":
-        # CAMBIO (#11): la petición se hizo desde el menú de la propia WS. Nadie escucha al
+        # la petición se hizo desde el menú de la propia WS. Nadie escucha al
         # "operario" MANUAL, así que la respuesta se envía a la estación como orden DENIED.
         enviar_orden(f"DENIED{SEP}{ws_id}{SEP}{motivo}")
  
  
 def tratar_peticion(operador, ws_id, duracion):
     # Pasos de la mecánica de la solución: validar -> pedir autorización a la WS -> riego
-    info(operador, ws_id, f"Petición recibida: riego durante {duracion} s")       # CAMBIO
+    info(operador, ws_id, f"Petición recibida: riego durante {duracion} s")      
  
     # 1) ¿Operario válido?
     if operador not in OPERADORES_ESPECIALES and not operario_existe(operador):
@@ -318,11 +318,11 @@ def cerrar_riego(ws_id, motivo, volumen=None, duracion=None, operador=None):
         ws["volumen"] = 0.0
     db_ejecutar("INSERT INTO riegos (ws, operario, fecha, duracion, volumen, motivo) VALUES (?,?,?,?,?,?)",
                 (ws_id, operador, time.strftime("%Y-%m-%d %H:%M:%S"), duracion, volumen, motivo))
-    enviar_resumen(operador, ws_id, volumen, duracion, motivo)      # CAMBIO
+    enviar_resumen(operador, ws_id, volumen, duracion, motivo)      
  
  
 def enviar_resumen(operador, ws_id, volumen, duracion, motivo):
-    # CAMBIO: END#FO_ID#WS_ID#litros#segundos#motivo
+    # END#FO_ID#WS_ID#litros#segundos#motivo
     texto_motivo = MOTIVOS_END.get(motivo, motivo)
     avisar(operador, f"END{SEP}{operador}{SEP}{ws_id}{SEP}{volumen:.2f}{SEP}{duracion:.0f}{SEP}{texto_motivo}",
            f"RESUMEN del riego en {ws_id}: volumen {volumen:.2f} L, duración {duracion:.0f} s, motivo: {texto_motivo}")
@@ -346,10 +346,13 @@ def tratar_data(p, reciente=True):
             ws["riego_op"] = operador
             ws["riego_inicio"] = time.time()
             ws["pendiente"] = None
-    if not reciente:                                                # CAMBIO
+    if not reciente:                                                
         return
-    if es_el_primero:                                               # CAMBIO: AUTH#FO_ID#WS_ID
+    if es_el_primero:                                               # AUTH#FO_ID#WS_ID
         avisar(operador, f"AUTH{SEP}{operador}{SEP}{ws_id}", f"{ws_id} ha AUTORIZADO el riego. Electroválvula abierta")
+    # Progreso del riego en la terminal de CENTRAL cada segundo
+    print(f"{time.strftime('%H:%M:%S')} [RIEGO] {ws_id} | {caudal} L/min"
+          f"{litros:.2f} L acumulados | operario {operador}", flush=True)
     # El operario solo recibe los mensajes de la WS que le está prestando servicio
     avisar(operador, f"STATUS{SEP}{operador}{SEP}{ws_id}{SEP}{caudal}{SEP}{litros:.2f}")   # CAMBIO
  
