@@ -21,7 +21,7 @@ FORMAT = 'utf-8'
 FIN = "FIN"
 SEP = "#"
 TIMEOUT_MONITOR = 5             # si un Monitor no envía nada en 5 s => lo damos por desconectado
-TIMEOUT_AUTORIZACION = 5        # segundos que esperamos a que la WS empiece a regar tras un START
+TIMEOUT_AUTORIZACION = 10        # segundos que esperamos a que la WS empiece a regar tras un START
 TIMEOUT_SIN_DATOS = 10          # segundos sin DATA de una WS que riega => damos el riego por interrumpido
 ANTIGUEDAD_MAXIMA = 10          # Una petición más antigua (enviada con CENTRAL caída) no se atiende
  
@@ -215,15 +215,16 @@ def crear_topics():
 def publicar(topic, texto):
     # envío con errores controlados. Si Kafka falla, se registra y CENTRAL sigue funcionando.
     try:
-        producer.send(topic, texto.encode(FORMAT))
-        producer.flush(timeout=5)
+        futuro = producer.send(topic, texto.encode(FORMAT))
+        futuro.get(timeout=5)
+        return True
     except Exception as e:
         log(f"[KAFKA] No se ha podido enviar '{texto}' ({e})")
- 
+        return False
  
 def enviar_orden(texto):
     # Orden de texto para los Engines
-    publicar(TOPIC_ORDERS, texto)
+    return publicar(TOPIC_ORDERS, texto)
  
  
 def avisar(operador, mensaje, texto_log=None):
@@ -294,7 +295,14 @@ def tratar_peticion(operador, ws_id, duracion):
     # 3) Pedimos autorización a la WS: le enviamos START. Si no puede, contestará REJECT;
     #    si puede, empezará a enviar DATA cada segundo.
     info(operador, ws_id, "Estación disponible. Solicitando autorización a la estación...")   # CAMBIO
-    enviar_orden(f"START{SEP}{ws_id}{SEP}{operador}{SEP}{duracion}")
+    orden = f"START{SEP}{ws_id}{SEP}{operador}{SEP}{duracion}"
+    if not enviar_orden(orden):
+        with lock_est:
+            ws = estaciones.get(ws_id)
+            if ws is not None and ws["pendiente"] is not None:
+                if ws["pendiente"][0] == operador:
+                    ws["pendiente"] = None
+        denegar(operador, ws_id, "no se pudo enviar la orden a la estacion")
  
  
 def cerrar_riego(ws_id, motivo, volumen=None, duracion=None, operador=None):
@@ -332,65 +340,146 @@ def enviar_resumen(operador, ws_id, volumen, duracion, motivo):
  
 def tratar_data(p, reciente=True):
     # DATA#id#operario#caudal#litros
-    # reciente=False: DATA antiguo releído de Kafka tras un reinicio de CENTRAL (se actualiza el
-    # estado, pero no se reenvía al operario un progreso que ya no es actual)
-    ws_id, operador, caudal, litros = p[1], p[2], float(p[3]), float(p[4])
+
+    if len(p) < 5:
+        return
+
+    ws_id, operador = p[1], p[2]
+    caudal, litros = float(p[3]), float(p[4])
+
     with lock_est:
         ws = estaciones.get(ws_id)
+
         if ws is None:
-            return                              # estación no dada de alta: la ignoramos
-        ws["caudal"], ws["volumen"], ws["operario"] = caudal, litros, operador
-        ws["ultimo_data"] = time.time()
-        es_el_primero = ws["riego_op"] is None
-        if es_el_primero:                       # primer DATA: la WS ha aceptado el START
+            return
+
+        # Comprobar que el DATA pertenece al riego pendiente o al ya autorizado
+        if ws["riego_op"] is None:
+            if ws["pendiente"] is None:
+                log(f"[AVISO] DATA ignorado de {ws_id}: no existe petición pendiente")
+                return
+
+            if ws["pendiente"][0] != operador:
+                log(f"[AVISO] DATA ignorado de {ws_id}: operario incorrecto")
+                return
+
+            # Primer DATA: la estación ha aceptado el START
             ws["riego_op"] = operador
             ws["riego_inicio"] = time.time()
             ws["pendiente"] = None
-    if not reciente:                                                
+
+            es_el_primero = True
+
+        else:
+            if ws["riego_op"] != operador:
+                log(f"[AVISO] DATA ignorado de {ws_id}: operario no coincide con el riego")
+                return
+
+            es_el_primero = False
+
+        ws["caudal"] = caudal
+        ws["volumen"] = litros
+        ws["operario"] = operador
+        ws["ultimo_data"] = time.time()
+
+    if not reciente:
         return
-    if es_el_primero:                                               # AUTH#FO_ID#WS_ID
-        avisar(operador, f"AUTH{SEP}{operador}{SEP}{ws_id}", f"{ws_id} ha AUTORIZADO el riego. Electroválvula abierta")
-    # Progreso del riego en la terminal de CENTRAL cada segundo
-    print(f"{time.strftime('%H:%M:%S')} [RIEGO] {ws_id} | {caudal} L/min "
-          f"{litros:.2f} L acumulados | operario {operador}", flush=True)
-    # El operario solo recibe los mensajes de la WS que le está prestando servicio
-    avisar(operador, f"STATUS{SEP}{operador}{SEP}{ws_id}{SEP}{caudal}{SEP}{litros:.2f}")   # CAMBIO
- 
+
+    if es_el_primero:
+        avisar(
+            operador,
+            f"AUTH{SEP}{operador}{SEP}{ws_id}",
+            f"{ws_id} ha AUTORIZADO el riego. Electroválvula abierta"
+        )
+
+    print(
+        f"{time.strftime('%H:%M:%S')} [RIEGO] {ws_id} | "
+        f"{caudal} L/min {litros:.2f} L acumulados | operario {operador}",
+        flush=True
+    )
+
+    avisar(
+        operador,
+        f"STATUS{SEP}{operador}{SEP}{ws_id}{SEP}{caudal}{SEP}{litros:.2f}"
+    )
  
 def tratar_end(p):
     # END#id#operario#litros#segundos#motivo
-    ws_id, operador, litros, segundos, motivo = p[1], p[2], float(p[3]), float(p[4]), p[5]
+
+    if len(p) < 6:
+        return
+
+    ws_id, operador = p[1], p[2]
+    litros, segundos = float(p[3]), float(p[4])
+    motivo = p[5]
+
     with lock_est:
         ws = estaciones.get(ws_id)
-        abierto = ws is not None and ws["riego_op"] is not None
+
+        if ws is None:
+            return
+
+        abierto = ws["riego_op"] == operador
+
     if not abierto:
-        # CAMBIO: CENTRAL ya dio este riego por terminado antes de recibir el END (avería informada
-        # por el Monitor, o la estación dejó de enviar datos) y lo guardó con los últimos datos que
-        # tenía. Ahora llega el resultado REAL de la estación: se CORRIGE ese registro en vez de crear
-        # otro (el mismo riego no aparece dos veces) y se envía al operario el resultado definitivo.
-        filas = db_ejecutar("SELECT id, operario, motivo FROM riegos WHERE ws = ? ORDER BY id DESC LIMIT 1",
-                            (ws_id,), leer=True)
+        filas = db_ejecutar(
+            "SELECT id, operario, motivo FROM riegos "
+            "WHERE ws = ? ORDER BY id DESC LIMIT 1",
+            (ws_id,),
+            leer=True
+        )
+
         if filas and filas[0][1] == operador and filas[0][2] in ("AVERIA", "SIN_DATOS"):
-            db_ejecutar("UPDATE riegos SET duracion = ?, volumen = ?, motivo = ? WHERE id = ?",
-                        (segundos, litros, motivo, filas[0][0]))
+            db_ejecutar(
+                "UPDATE riegos SET duracion = ?, volumen = ?, motivo = ? WHERE id = ?",
+                (segundos, litros, motivo, filas[0][0])
+            )
+
             enviar_resumen(operador, ws_id, litros, segundos, motivo)
             return
-    cerrar_riego(ws_id, motivo, volumen=litros, duracion=segundos, operador=operador)
- 
+
+        log(f"[AVISO] END ignorado de {ws_id}: no existe un riego abierto")
+        return
+
+    cerrar_riego(
+        ws_id,
+        motivo,
+        volumen=litros,
+        duracion=segundos,
+        operador=operador
+    )
  
 def tratar_reject(p):
     # REJECT#id#operario#motivo
-    ws_id, operador, motivo = p[1], p[2], p[3]
-    if motivo == "None":
-        # Protección: un REJECT con motivo "None" no es un rechazo real (lo enviaban versiones
-        # antiguas del Engine al empezar un riego). Se ignora.
+
+    if len(p) < 4:
         return
+
+    ws_id, operador, motivo = p[1], p[2], p[3]
+
+    if motivo == "None":
+        return
+
     with lock_est:
         ws = estaciones.get(ws_id)
-        if ws is not None:
-            ws["pendiente"] = None
-    denegar(operador, ws_id, f"la estación rechaza el riego ({MOTIVOS_REJECT.get(motivo, motivo)})")
- 
+
+        if ws is None:
+            return
+
+        if ws["pendiente"] is None:
+            return
+
+        if ws["pendiente"][0] != operador:
+            log(f"[AVISO] REJECT ignorado: operario incorrecto en {ws_id}")
+            return
+
+        ws["pendiente"] = None
+
+    denegar(
+        operador,
+        ws_id,
+        f"la estación rechaza el riego ({MOTIVOS_REJECT.get(motivo, motivo)})"
+    )
  
 def tratar_evento(texto, reciente=True):
     p = texto.split(SEP)

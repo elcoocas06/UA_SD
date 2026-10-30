@@ -209,8 +209,6 @@ def entregar_end_pendiente():
         with lock:
             os.remove(fichero())
         print(f"[CENTRAL] Resumen final entregado: {l} L en {s} s ({motivo})")
-        if not esperando_resumen:
-            mostrar_menu()
 
 def hilo_riego():
     # Cada segundo:
@@ -241,8 +239,9 @@ def procesar_orden(texto):
     print(f"[CENTRAL] Orden recibida: {texto}")
     try:
         if p[0] == "START": # START#ID#operario#segundos
-            iniciar_riego(p[2], int(p[3]))
-            respuesta_central.set()
+            aceptado = iniciar_riego(p[2], int(p[3]))
+            if aceptado and p[2] == "MANUAL":
+                respuesta_central.set()
         elif p[0] == "STOP":
             finalizar_riego("STOP")
         elif p[0] == "BLOCK":   # corta el riego y queda fuera de servicio
@@ -387,10 +386,14 @@ def menu():
                     respuesta_central.clear()    
                     if enviar_evento(f"REQUEST{SEP}{WS_ID}{SEP}MANUAL{SEP}{t}"):
                         print("Peticion enviada a WM_Central. Esperando autorización")
-                        if respuesta_central.wait(10):
+                        respuesta = respuesta_central.wait(10)
+                        
+                        if respuesta:
                             ver_menu = not regando  # si el riego ha empezado, no se muestra el menu hasta que termine
                         else:
                             print("[ERROR] Imposible conectar con WM_Central: sin respuesta a la peticion")
+                    else:
+                        print("[ERROR] No se pudo enviar la peticion a WM_Central")
         elif op == "2":
             esperando_resumen = True    # se activa antes de cerrar, para que no se adelante hilo_riego
             if finalizar_riego("MANUAL"):
@@ -434,4 +437,3 @@ try:
     menu()
 except KeyboardInterrupt:
     print("\n[FIN] Engine detenido")
-    

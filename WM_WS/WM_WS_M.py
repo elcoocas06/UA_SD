@@ -91,15 +91,25 @@ def handle_engine(conn, addr):
 
         connected = True
         while connected:
+            estado_central = 'OK' if central_ok else 'KO'
             # Enviamos el ID de la estacion a Engine y comprobamos su estado
-            send(conn, f"HEALTH{SEP}{WS_ID}{SEP}{'OK' if central_ok else 'KO'}")
-            respuesta = recibir(conn).split(SEP)
+            send(conn, f"HEALTH{SEP}{WS_ID}{SEP}{estado_central}")
+            mensaje = recibir(conn)
 
-            # Si es OK -> Todo bien / Si es KO -> averia
-            if respuesta[0] == "HEALTH_ANS" and len(respuesta) > 1 and respuesta[1] == OK:
+            if not mensaje:
+                raise ConnectionError("El Engine no ha enviado respuesta")
+            respuesta = mensaje.split(SEP)
+            
+             # Comprobamos que la respuesta sea correcta
+            if (len(respuesta) >= 2 and
+                respuesta[0] == "HEALTH_ANS" and
+                respuesta[1] == OK):
+
                 cambiar_estado(OK)
+
             else:
                 cambiar_estado(KO)
+
             time.sleep(PERIODO)
 
     except (socket.timeout, ConnectionError, OSError, ValueError) as e:
