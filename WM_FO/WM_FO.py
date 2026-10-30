@@ -41,13 +41,14 @@ TOPIC_REQUESTS = "wm_fo_requests" # FO > CENTRAL
 TOPIC_NOTIFY = "wm_fo_notifications" # CENTRAL > FO
 
 ESPERA_ENTRE_SERVICIOS = 4  # s entre servicios del fichero
-TIMEOUT_RESPUESTA = 10      # s maximos esperando respuesta de CENTRAL a una peticion
+TIMEOUT_RESPUESTA = 15      # s maximos esperando respuesta de CENTRAL a una peticion
 TIMEOUT_SILENCIO = 5        # s sin noticias durante un riego -> CENTRAL no responde
 MARGEN_FIN = 60             # s extra sobre la duración antes de dejar esperar el resumen
 
 # Se rellenan en el main con los argumentos de la linea de comandos
 KAFKA_ADDR = None   # "IP:puerto" del broker 
 FO_ID = None
+consumer = None
 
 #################### ESTADO DEL SERVICIO EN CURSO #################### 
 lock = threading.Lock()                     # protege las variables de abajo
@@ -167,10 +168,15 @@ def hilo_notificaciones():
     #   en kafka y, al volver a arrancar con el mismo ID, se reciben los que llegaron 
     #   mientras estaba cerrado  
     # - auto_offset_reset="earliest": solo se usa la primera vez que existe el grupo
+    global consumer
     while True:
         try:
             consumer = KafkaConsumer(TOPIC_NOTIFY, bootstrap_servers=KAFKA_ADDR, 
                                      group_id=f"WM_FO_{FO_ID}", auto_offset_reset="earliest")
+            while not consumer.assignment():
+                for registros in consumer.poll(timeout_ms=200).values():
+                    for m in registros:
+                        procesar_notificacion(m.value.decode(FORMAT))
             escuchando.set()
             for m in consumer:  # espera mensajes indefinidamente
                 procesar_notificacion(m.value.decode(FORMAT))
@@ -198,7 +204,8 @@ def solicitar_servicio(ws,segundos):
                 silencio = time.time() - ultimo_mensaje
             if f == "ESPERANDO_AUTORIZACION" and silencio > TIMEOUT_RESPUESTA:
                 # CENTRAL no contesta: no se admiten peticiones mientras no esté disponible
-                print("[ERROR] Imposible conectar con WM_Central: sin respuesta. Servicio cancelado")
+                print("[ERROR] Sin respuesta de WM_Central a la peticion. " \
+                        "Servicio cancelado, si el riego llega a hacerse, el resumen se muestra")
                 break
             if f == "REGANDO":
                 if silencio > TIMEOUT_SILENCIO and not avisado:
@@ -288,4 +295,9 @@ try:
         ejecutar_fichero(sys.argv[4])
     menu()
 except KeyboardInterrupt:
+    if consumer is not None:
+        try:
+            consumer.close()
+        except Exception:
+            pass
     print("\n[FIN] Aplicación del operario cerrada")
