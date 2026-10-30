@@ -41,7 +41,7 @@ TOPIC_REQUESTS = "wm_fo_requests" # FO > CENTRAL
 TOPIC_NOTIFY = "wm_fo_notifications" # CENTRAL > FO
 
 ESPERA_ENTRE_SERVICIOS = 4  # s entre servicios del fichero
-TIMEOUT_RESPUESTA = 15      # s maximos esperando respuesta de CENTRAL a una peticion
+TIMEOUT_RESPUESTA = 30      # s maximos esperando respuesta de CENTRAL a una peticion
 TIMEOUT_SILENCIO = 5        # s sin noticias durante un riego -> CENTRAL no responde
 MARGEN_FIN = 60             # s extra sobre la duración antes de dejar esperar el resumen
 
