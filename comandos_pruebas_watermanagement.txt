@@ -1,0 +1,299 @@
+WATERMANAGEMENT — GUÍA DE COMANDOS PARA PRUEBAS
+
+Documento basado en WM_Central.py, WM_WS_M.py, WM_WS_E.py y WM_FO.py.
+
+DATOS EXTERNOS DE RAILWAY
+
+CENTRAL (TCP Proxy): altaria.proxy.rlwy.net:26959 Kafka (TCP Proxy):
+reseau.proxy.rlwy.net:39284
+
+No utilices kafka.railway.internal:9092 desde el laboratorio: esa
+dirección es para servicios dentro de la red privada de Railway.
+
+Antes de empezar: 
+1. Comprueba que CENTRAL y Kafka están activos en Railway. 
+2. Comprueba que el ordenador tiene conexión a los proxies. 
+3. Instala dependencias: python -m pip install kafka-python 
+Si existe requirements.txt, es preferible: python -m pip install -r requirements.txt 
+4. Comprueba que el ID de estación está dado de alta en CENTRAL.
+
+============================================================ 
+1. WM_CENTRAL — SISTEMA CENTRAL
+============================================================
+
+Uso: python WM_Central.py [PuertoWeb]
+
+En el escenario habitual CENTRAL ya está desplegada en Railway. No
+ejecutes otra CENTRAL local si quieres utilizar la de Railway.
+
+1.1. Arranque local alternativo (solo para pruebas aisladas): python
+WM_Central.py 7000 reseau.proxy.rlwy.net 39284 8080
+
+Qué hace: - Escucha a los Monitores en el puerto 7000. - Se conecta a
+Kafka. - Inicializa/abre SQLite local (wm_central.db, salvo variable
+WM_DB). - Arranca los consumidores y el servidor del panel web.
+
+Panel local: http://localhost:8080
+
+Para detener: Ctrl + C
+
+IMPORTANTE: la CENTRAL local tiene su propia SQLite. No comparte
+automáticamente la base de datos de Railway. Para usarla, los Monitores
+deben apuntar a la IP del ordenador donde corre CENTRAL y al puerto
+7000.
+
+1.2. Estaciones registradas inicialmente en el código: WS-01 River Park
+WS-02 Central Park WS-03 Riverside Gardens WS-04 North Roundabout
+
+Para añadir otra estación, utiliza el panel de CENTRAL: “Dar de alta una
+estación” Ejemplo: ID: WS-05 Ubicación: Lake View
+
+Si no está dada de alta, CENTRAL rechazará el registro del Monitor.
+
+============================================================ 
+2. WM_WS_M — MONITOR DE LA WATERING STATION
+============================================================
+
+Uso: python WM_WS_M.py [Ubicacion]
+
+Qué hace: - Se registra en CENTRAL mediante socket. - Envía
+periódicamente el estado de la estación a CENTRAL. - Escucha al Engine
+en el puerto local indicado. - Cada Monitor admite UN único Engine.
+
+2.1. Monitor WS-01: 
+    - python WM_WS_M.py 7001 altaria.proxy.rlwy.net 26959 WS-01 “River Park”
+
+2.2. Monitor WS-02: 
+    - python WM_WS_M.py 7002 altaria.proxy.rlwy.net 26959 WS-02 “Central Park”
+
+2.3. Monitor WS-03: 
+    - python WM_WS_M.py 7003 altaria.proxy.rlwy.net 26959 WS-03 “Riverside Gardens”
+
+2.4. Monitor WS-04:  
+    - python WM_WS_M.py 7004 altaria.proxy.rlwy.net 26959 WS-04 “North Roundabout”
+
+Puertos: - Varios Monitores en el mismo ordenador: cada uno necesita un
+puerto distinto. - Monitores en ordenadores diferentes pueden reutilizar
+el mismo puerto. - El puerto 26959 es el de CENTRAL; no es el puerto de
+escucha del Engine.
+
+============================================================ 
+3. WM_WS_E — ENGINE DE LA WATERING STATION
+============================================================
+
+Uso: python WM_WS_E.py
+
+Qué hace: - Se conecta a Kafka para recibir órdenes y enviar eventos. -
+Se conecta como cliente al Monitor indicado. - Recibe del Monitor el ID
+de la estación. - Simula caudalímetro, electroválvula y detector de
+fugas.
+
+Si Monitor y Engine están en el mismo ordenador, utiliza 127.0.0.1.
+
+3.1. Engine de WS-01:  
+    - python WM_WS_E.py reseau.proxy.rlwy.net 39284 127.0.0.1 7001
+
+3.2. Engine de WS-02:  
+    - python WM_WS_E.py reseau.proxy.rlwy.net 39284 127.0.0.1 7002
+
+3.3. Engine de WS-03:  
+    - python WM_WS_E.py reseau.proxy.rlwy.net 39284 127.0.0.1 7003
+
+3.4. Engine de WS-04:  
+    - python WM_WS_E.py reseau.proxy.rlwy.net 39284 127.0.0.1 7004
+
+Si Monitor y Engine están en ordenadores diferentes: - Sustituye
+127.0.0.1 por la IP LAN del ordenador del Monitor. - El puerto del
+Monitor debe ser accesible desde el ordenador del Engine. - Puede ser
+necesario permitir el puerto en el Firewall de Windows. - No uses la
+dirección del proxy de CENTRAL para esta conexión: Engine y Monitor se
+conectan directamente entre sí.
+
+Menú del Engine: 
+1) Solicitar riego Pide duración en segundos. CENTRAL valida la petición. 
+2) Finalizar riego Cierra manualmente el riego en curso. 
+3) Simular/resolver fuga Alterna la avería; una fuga provoca respuesta KO al Monitor. 
+4) Ver estado Muestra el estado actual.
+
+El Engine guarda el riego pendiente en riego_.txt, en el directorio de
+ejecución por defecto. El ID lo recibe del Monitor; no es un argumento.
+
+============================================================ 
+4. WM_FO — FILE OPERATOR / APLICACIÓN DEL OPERARIO
+============================================================
+
+Uso: python WM_FO.py [fichero_servicios]
+
+Qué hace: - Se conecta a Kafka. - Envía peticiones y consultas a
+CENTRAL. - Recibe notificaciones dirigidas a su ID de operario. - Los
+IDs iniciales de operario en CENTRAL son FO-01, FO-02, FO-03, FO-04 y
+FO-05.
+
+4.1. FO-01: 
+    - python WM_FO.py reseau.proxy.rlwy.net 39284 FO-01
+
+4.2. FO-02: 
+    - python WM_FO.py reseau.proxy.rlwy.net 39284 FO-02
+
+4.3. FO-03: 
+    - python WM_FO.py reseau.proxy.rlwy.net 39284 FO-03
+
+4.4. FO-04: 
+    - python WM_FO.py reseau.proxy.rlwy.net 39284 FO-04
+
+4.5. FO-05: 
+    - python WM_FO.py reseau.proxy.rlwy.net 39284 FO-05
+
+Ejecuta cada operario en una terminal independiente si quieres tener
+varios activos simultáneamente.
+
+Menú del FO: 
+1) Solicitar riego Pide el ID de estación y la duración. 
+2)Ejecutar fichero de servicios Lee servicios en formato ID_WS#segundos, uno por línea. Los ejecuta secuencialmente y espera 4 segundos entre ellos. 
+3) Ver estaciones Pide a CENTRAL la lista de estaciones y sus estados.
+
+4.6. Ejemplo de fichero de servicios: Crea servicios_fo01.txt en la
+carpeta actual con estas líneas: 
+    - WS-01#15 WS-02#20 WS-03#10
+
+Arranque con ejecución automática del fichero: 
+    - python WM_FO.py reseau.proxy.rlwy.net 39284 FO-01 servicios_fo01.txt
+
+Las líneas vacías se ignoran. Las líneas con formato incorrecto se
+descartan.
+
+
+
+============================================================ 
+5. EJEMPLOS DE EJECUCIÓN COMPLETA
+============================================================
+
+ESCENARIO A — UNA ESTACIÓN Y UN OPERARIO, MISMO ORDENADOR
+
+Terminal 1 — Monitor: 
+    - python WM_WS_M.py 7001 altaria.proxy.rlwy.net 26959 WS-01 “River Park”
+
+Terminal 2 — Engine: 
+    - python WM_WS_E.py reseau.proxy.rlwy.net 39284 127.0.0.1 7001
+
+Terminal 3 — File Operator: 
+    - python WM_FO.py reseau.proxy.rlwy.net 39284 FO-01
+
+Orden recomendado: 
+1. Arranca Monitor y espera la autenticación en CENTRAL. 
+2. Arranca Engine y espera a que el Monitor lo detecte. 
+3. Arranca FO-01 y prueba el menú.
+
+
+
+ESCENARIO B — DOS ESTACIONES EN EL MISMO ORDENADOR
+
+Terminal 1: 
+    - python WM_WS_M.py 7001 altaria.proxy.rlwy.net 26959 WS-01 “River Park”
+
+Terminal 2: 
+    - python WM_WS_E.py reseau.proxy.rlwy.net 39284 127.0.0.1 7001
+
+Terminal 3: 
+    - python WM_WS_M.py 7002 altaria.proxy.rlwy.net 26959 WS-02 “Central Park”
+
+Terminal 4: 
+    - python WM_WS_E.py reseau.proxy.rlwy.net 39284 127.0.0.1 7002
+
+Terminal 5: 
+    - python WM_FO.py reseau.proxy.rlwy.net 39284 FO-01
+
+
+
+ESCENARIO C — MONITOR Y ENGINE EN ORDENADORES DIFERENTES
+
+En ordenador A — Monitor: python WM_WS_M.py 7001 altaria.proxy.rlwy.net
+26959 WS-01 “River Park”
+
+En ordenador B — Engine: python WM_WS_E.py reseau.proxy.rlwy.net 39284
+7001
+
+Sustituye por la IP LAN real del ordenador A. El puerto 7001 debe estar
+permitido en el Firewall y ser accesible desde B. El FO puede ejecutarse
+en cualquier ordenador con acceso a Kafka.
+
+
+
+
+============================================================ 
+6. PRUEBAS FUNCIONALES 
+============================================================
+
+
+PRUEBA 1 — Consultar estaciones - Arranca Monitor y Engine. - Arranca
+FO-01. - Selecciona la opción 3. - Comprueba que WS-01 aparece
+disponible.
+
+PRUEBA 2 — Riego desde FO - En FO-01, selecciona opción 1. - Introduce
+WS-01 y 15 segundos. - Comprueba autorización, progreso y resumen final.
+
+PRUEBA 3 — Riego manual desde Engine - En el Engine, selecciona
+opción 1. - Introduce una duración. - Comprueba la autorización de
+CENTRAL y el resumen.
+
+PRUEBA 4 — Parada manual - Inicia un riego y selecciona opción 2 en
+Engine. - Comprueba el resumen de finalización manual.
+
+PRUEBA 5 — Simular fuga - En Engine, selecciona opción 3. - Comprueba
+que Monitor informa KO y CENTRAL muestra la avería. - Selecciona opción
+3 de nuevo para resolverla.
+
+PRUEBA 6 — Varias estaciones - Arranca dos parejas Monitor-Engine con
+IDs y puertos distintos. - En FO-01, consulta estaciones y solicita
+riegos a WS-01 y WS-02. - Comprueba que cada Engine responde a las
+órdenes de su estación.
+
+============================================================ 7. ERRORES
+FRECUENTES ============================================================
+
+“NO_REGISTRADA” - El ID no está dado de alta en CENTRAL. - Utiliza un ID
+existente o da de alta la estación desde el panel.
+
+“DUPLICADA” - Ya hay un Monitor conectado con ese ID. - Detén el Monitor
+anterior o utiliza otro ID registrado.
+
+“Esperando al Monitor” - El Engine no conecta con el Monitor. - Revisa
+IP, puerto, Firewall y que el Monitor esté arrancado.
+
+“Ya hay un Engine conectado a este Monitor” - Un Monitor solo admite un
+Engine. - No arranques dos Engines apuntando al mismo Monitor.
+
+“Imposible conectar con WM_Central” o error Kafka - Comprueba que
+Railway está activo y que hay conectividad. - CENTRAL:
+altaria.proxy.rlwy.net:26959 - Kafka: reseau.proxy.rlwy.net:39284 -
+Kafka debe anunciar un endpoint externo accesible desde el laboratorio.
+
+Estación DESCONECTADA - Comprueba primero que Monitor se autenticó. -
+Después comprueba que Engine se conectó al Monitor. - Monitor
+autenticado no significa necesariamente Engine conectado.
+
+============================================================ 8. RESUMEN
+DE ARGUMENTOS
+============================================================
+
+WM_Central.py: [PuertoWeb]
+
+WM_WS_M.py: [Ubicacion]
+
+WM_WS_E.py:
+
+WM_FO.py: [fichero_servicios]
+
+REGLAS IMPORTANTES
+
+-   Un Monitor admite un único Engine.
+-   Cada estación debe estar registrada en CENTRAL.
+-   Cada pareja Monitor-Engine debe utilizar el mismo puerto de Monitor.
+-   Varios Monitores en el mismo ordenador necesitan puertos distintos.
+-   Cada FO necesita un ID de operario registrado.
+-   Los Engines y FO se comunican con CENTRAL a través de Kafka.
+-   Monitor se comunica con CENTRAL y Engine mediante sockets.
+-   CENTRAL local y CENTRAL de Railway no comparten automáticamente
+    SQLite.
+
+FIN DEL DOCUMENTO
