@@ -11,7 +11,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Código y fichero de servicios de ejemplo (para el modo automático)
-COPY WM_FO.py servicios.txt ./
+COPY WM_FO.py ./
+COPY servicios/ ./servicios/
 
 ENV PYTHONUNBUFFERED=1
 
