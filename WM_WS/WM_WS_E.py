@@ -171,6 +171,7 @@ def iniciar_riego(op, tiempo):
     if motivo:
         print(f"[RIEGO] Riego rechazado para {op} (motivo: {motivo})")
         enviar_evento(f"REJECT{SEP}{WS_ID}{SEP}{op}{SEP}{motivo}")
+    return motivo is None # Devuelve True si se ha podido iniciar el riego, False si no
 
 def cerrar_valvula(motivo):
     # Cierra el riego y guarda el resumen final en el fichero. No envia el evento END a CENTRAL, eso lo hace el hilo de riego)
@@ -366,7 +367,7 @@ def menu():
             print(TEXTO_MENU)
             op = input("> ").strip()
         else:
-            op = input("> ").strip()            
+            op = input().strip()            
         ver_menu=True
         if op == "4":
             mostrar_estado()
